@@ -1,85 +1,83 @@
 <template>
-  <Transition name="panel-slide">
-    <div v-if="isOpen" class="panel-root">
-      <!-- Ambient glow behind panel -->
-      <div class="panel-glow"></div>
+  <div class="panel-root" :class="{ 'is-open': isOpen }">
+    <!-- Ambient glow behind panel -->
+    <div class="panel-glow"></div>
 
-      <!-- Panel content -->
-      <div class="panel-inner">
-        <!-- Header -->
-        <div class="panel-header">
-          <div class="header-left">
-            <div class="ai-avatar">
-              <SparklesIcon class="avatar-icon" />
-              <div class="avatar-pulse"></div>
-            </div>
-            <div class="header-text">
-              <h2 class="header-title">AI</h2>
-              <div class="header-status">
-                <span class="status-dot"></span>
-                <span class="status-label">Ready</span>
-              </div>
+    <!-- Panel content -->
+    <div class="panel-inner">
+      <!-- Header -->
+      <div class="panel-header">
+        <div class="header-left">
+          <div class="ai-avatar">
+            <SparklesIcon class="avatar-icon" />
+            <div class="avatar-pulse"></div>
+          </div>
+          <div class="header-text">
+            <h2 class="header-title">AI</h2>
+            <div class="header-status">
+              <span class="status-dot"></span>
+              <span class="status-label">Ready</span>
             </div>
           </div>
-          <button @click="close" class="close-btn" aria-label="Close AI assistant">
-            <XIcon class="close-icon" />
+        </div>
+        <button @click="close" class="close-btn" aria-label="Close AI assistant">
+          <XIcon class="close-icon" />
+        </button>
+      </div>
+
+      <!-- Messages Area -->
+      <div class="messages-area" ref="messagesRef">
+        <!-- Welcome Message -->
+        <div class="message message-ai">
+          <div class="message-avatar">
+            <SparklesIcon class="msg-avatar-icon" />
+          </div>
+          <div class="message-content">
+            <p class="message-text">How can I help you with your document?</p>
+            <span class="message-time">Just now</span>
+          </div>
+        </div>
+
+        <!-- Suggestion Chips -->
+        <div class="suggestions">
+          <button
+            v-for="suggestion in suggestions"
+            :key="suggestion.label"
+            class="suggestion-chip"
+            @click="handleSuggestion(suggestion.prompt)"
+          >
+            <component :is="suggestion.icon" class="chip-icon" />
+            <span>{{ suggestion.label }}</span>
           </button>
         </div>
+      </div>
 
-        <!-- Messages Area -->
-        <div class="messages-area" ref="messagesRef">
-          <!-- Welcome Message -->
-          <div class="message message-ai">
-            <div class="message-avatar">
-              <SparklesIcon class="msg-avatar-icon" />
-            </div>
-            <div class="message-content">
-              <p class="message-text">How can I help you with your document?</p>
-              <span class="message-time">Just now</span>
-            </div>
-          </div>
-
-          <!-- Suggestion Chips -->
-          <div class="suggestions">
-            <button
-              v-for="suggestion in suggestions"
-              :key="suggestion.label"
-              class="suggestion-chip"
-              @click="handleSuggestion(suggestion.prompt)"
-            >
-              <component :is="suggestion.icon" class="chip-icon" />
-              <span>{{ suggestion.label }}</span>
-            </button>
-          </div>
+      <!-- Input Area -->
+      <div class="input-area">
+        <div class="input-wrapper">
+          <textarea
+            ref="inputRef"
+            v-model="inputText"
+            placeholder="Ask anything..."
+            class="chat-input"
+            rows="1"
+            @input="autoResize"
+            @keydown.enter.exact.prevent="sendMessage"
+          ></textarea>
+          <button
+            class="send-btn"
+            :class="{ 'send-btn--active': inputText.trim() }"
+            :disabled="!inputText.trim()"
+            @click="sendMessage"
+            aria-label="Send message"
+          >
+            <ArrowUpIcon class="send-icon" />
+          </button>
         </div>
-
-        <!-- Input Area -->
-        <div class="input-area">
-          <div class="input-wrapper">
-            <textarea
-              ref="inputRef"
-              v-model="inputText"
-              placeholder="Ask anything..."
-              class="chat-input"
-              rows="1"
-              @input="autoResize"
-              @keydown.enter.exact.prevent="sendMessage"
-            ></textarea>
-            <button
-              class="send-btn"
-              :class="{ 'send-btn--active': inputText.trim() }"
-              :disabled="!inputText.trim()"
-              @click="sendMessage"
-              aria-label="Send message"
-            >
-              <ArrowUpIcon class="send-icon" />
-            </button>
-          </div>
-          <p class="input-hint">Press <kbd>Enter</kbd> to send</p>
-        </div>
+        <p class="input-hint">Press <kbd>Enter</kbd> to send</p>
       </div>
     </div>
-  </Transition>
+  </div>
 </template>
 
 <script setup>
@@ -159,22 +157,9 @@ watch(isOpen, (val) => {
 </script>
 
 <style scoped>
-/* ── Transition ────────────────────────────── */
-.panel-slide-enter-active,
-.panel-slide-leave-active {
-  transition:
-    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
-    opacity 0.25s ease;
-}
-.panel-slide-enter-from,
-.panel-slide-leave-to {
-  transform: translateX(100%);
-  opacity: 0;
-}
-
 /* ── Root ──────────────────────────────────── */
 .panel-root {
-  position: absolute;
+  position: fixed;
   right: 0;
   top: 0;
   bottom: 0;
@@ -182,6 +167,26 @@ watch(isOpen, (val) => {
   z-index: 50;
   display: flex;
   flex-direction: column;
+  transform: translateX(100%);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  will-change: transform, opacity;
+  transition:
+    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.25s ease,
+    visibility 0s linear 0.35s;
+}
+
+.panel-root.is-open {
+  transform: translateX(0);
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
+    opacity 0.25s ease,
+    visibility 0s linear 0s;
 }
 
 .panel-glow {

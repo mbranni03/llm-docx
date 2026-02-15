@@ -6,10 +6,10 @@
         <router-view />
       </div>
     </div>
-
-    <!-- AI Chat Panel (Overlay/Drawer style) -->
-    <AIChatPanel />
   </div>
+
+  <!-- AI Chat Panel — outside flex flow entirely -->
+  <AIChatPanel />
 </template>
 
 <script setup>
