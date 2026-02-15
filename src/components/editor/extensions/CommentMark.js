@@ -3,6 +3,8 @@ import { Mark, mergeAttributes } from '@tiptap/core'
 export const CommentMark = Mark.create({
   name: 'comment',
 
+  inclusive: false,
+
   addAttributes() {
     return {
       commentId: {

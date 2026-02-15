@@ -2,7 +2,8 @@
   <div class="h-full flex flex-col relative w-full mx-auto items-center">
     <!-- Toolbar Area -->
     <div
-      class="w-full px-4 py-2 border-b border-gray-200 bg-white/80 backdrop-blur top-0 z-50 sticky flex justify-center"
+      class="w-full px-2 py-1 bg-white border-b border-gray-100 top-0 z-50 sticky"
+      style="box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06)"
     >
       <EditorToolbar />
     </div>

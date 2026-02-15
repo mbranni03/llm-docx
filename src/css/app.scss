@@ -48,3 +48,13 @@ body {
     background-color: rgba(0, 0, 0, 0.07);
   }
 }
+
+/* --- Tiptap Placeholder --- */
+.tiptap p.is-editor-empty:first-child::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: #adb5bd;
+  pointer-events: none;
+  height: 0;
+  font-style: italic;
+}

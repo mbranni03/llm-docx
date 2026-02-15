@@ -58,7 +58,7 @@ import { watch, onBeforeUnmount } from 'vue'
 const store = useEditorStore()
 
 const editor = useEditor({
-  content: '<p>Start writing your document here...</p>',
+  content: '',
   extensions: [
     StarterKit,
     Placeholder.configure({
@@ -74,6 +74,26 @@ const editor = useEditor({
   },
   onCreate({ editor }) {
     store.setEditor(editor)
+  },
+  onUpdate({ editor }) {
+    // Collect all comment IDs still present in the document
+    const activeIds = new Set()
+    editor.state.doc.descendants((node) => {
+      if (node.isText) {
+        node.marks.forEach((mark) => {
+          if (mark.type.name === 'comment' && mark.attrs.commentId) {
+            activeIds.add(mark.attrs.commentId)
+          }
+        })
+      }
+    })
+
+    // Remove any comments whose marks no longer exist in the doc
+    const orphaned = store.comments
+      .filter((c) => !c.resolved && !activeIds.has(c.id))
+      .map((c) => c.id)
+
+    orphaned.forEach((id) => store.removeComment(id))
   },
   onSelectionUpdate({ editor }) {
     if (editor.isActive('comment')) {
