@@ -1,24 +1,40 @@
 import Agent from "solo-ai-sdk";
 import { Router } from "./router";
 import { registerDocsRoutes } from "./router/docs";
+import { registerAnalyzeRoutes } from "./router/analyze";
 
 const router = new Router();
 
 registerDocsRoutes(router);
+registerAnalyzeRoutes(router);
+
+// ─── CORS helper ─────────────────────────────────────────────────────
+
+const CORS_HEADERS: Record<string, string> = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Methods": "GET, POST, PUT, PATCH, DELETE, OPTIONS",
+  "Access-Control-Allow-Headers": "Content-Type, Authorization",
+};
+
+function withCors(res: Response): Response {
+  for (const [key, value] of Object.entries(CORS_HEADERS)) {
+    res.headers.set(key, value);
+  }
+  return res;
+}
+
+// ─── Server ──────────────────────────────────────────────────────────
 
 const server = Bun.serve({
   port: 3000,
-  fetch: (req) => router.handle(req),
+  async fetch(req) {
+    // Handle CORS preflight
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: CORS_HEADERS });
+    }
+    const res = await router.handle(req);
+    return withCors(res);
+  },
 });
-
-// const agent = new Agent("gemini");
-
-// const response = await agent.generate("You are a helpful assistant.", [
-//   { role: "user", content: "What is the capital of France?" },
-// ]);
-
-// console.log(response);
-// console.log("\n---------------\n");
-// console.log(response.content);
 
 console.log(`🚀 Server running at http://localhost:${server.port}`);

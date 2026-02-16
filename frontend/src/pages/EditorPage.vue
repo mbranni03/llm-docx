@@ -21,6 +21,11 @@
 
         <!-- Comment Margin (inline, scrolls with document) -->
         <div class="w-72 shrink-0 relative ml-4" ref="marginRef">
+          <!-- Analysis Panel -->
+          <div class="mb-4">
+            <AnalysisPanel />
+          </div>
+
           <div
             v-for="comment in comments"
             :key="comment.id"
@@ -198,6 +203,7 @@
 
 <script setup>
 import { ref, reactive, computed, watch, nextTick, onMounted, onBeforeUnmount } from 'vue'
+import AnalysisPanel from '../components/editor/AnalysisPanel.vue'
 import TiptapEditor from '../components/editor/TiptapEditor.vue'
 import EditorToolbar from '../components/editor/EditorToolbar.vue'
 import { useEditorStore } from '../stores/editor-store'
