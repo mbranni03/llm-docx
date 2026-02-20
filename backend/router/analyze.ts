@@ -20,6 +20,7 @@ import {
 import { Embedder } from "../db/embedder";
 import { criticizeDocument } from "../services/criticism";
 import { suggestChangesDocument } from "../services/suggest";
+import { summarizeDocument } from "../services/summarize";
 
 // Single shared sync manager instance (in-memory state per server lifetime)
 const syncManager = new DocSyncManager();
@@ -143,6 +144,25 @@ export function registerAnalyzeRoutes(router: Router) {
 
       const suggestions = await suggestChangesDocument(text);
       return Response.json(suggestions);
+    });
+
+    // ── POST /analyze/summarize ────────────────────────────────────
+    r.post("/summarize", async (ctx) => {
+      const { text } = await ctx.body<{ text: string }>();
+
+      if (!text || typeof text !== "string") {
+        return Response.json(
+          { error: "Request body must include a `text` string." },
+          { status: 400 },
+        );
+      }
+
+      try {
+        const summary = await summarizeDocument(text);
+        return Response.json({ summary });
+      } catch (err: any) {
+        return Response.json({ error: err.message }, { status: 500 });
+      }
     });
   });
 }

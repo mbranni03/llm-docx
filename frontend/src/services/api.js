@@ -77,3 +77,12 @@ export async function criticizeDocument(text) {
 export async function suggestChangesDocument(text) {
   return post('/analyze/suggest', { text })
 }
+
+/**
+ * Generates an AI summary for the document using Map-Reduce.
+ *
+ * @param {string} text Full document text
+ */
+export async function summarizeDocument(text) {
+  return post('/analyze/summarize', { text })
+}

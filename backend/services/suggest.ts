@@ -33,7 +33,7 @@ export async function suggestChangesDocument(
       const response = await agent.generate(
         SYSTEM_PROMPT,
         [{ role: "user", content: chunk.text }],
-        { model: "gemini-2.5-flash" },
+        { model: "gemini-3-flash-preview" },
       );
 
       const content = response.content as string;

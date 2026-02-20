@@ -7,6 +7,7 @@ import {
   analyzeHierarchy,
   criticizeDocument,
   suggestChangesDocument,
+  summarizeDocument,
 } from '../services/api'
 
 export const useDocAnalysisStore = defineStore('doc-analysis', () => {
@@ -147,6 +148,23 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
     }
   }
 
+  /**
+   * Generates a Map-Reduce summary of the whole document.
+   * @param {string} text Full document text
+   */
+  async function generateSummary(text) {
+    loading.value = true
+    error.value = null
+    try {
+      return await summarizeDocument(text)
+    } catch (err) {
+      error.value = err.message
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     loading,
     error,
@@ -161,5 +179,6 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
     clearResults,
     generateCriticisms,
     generateSuggestions,
+    generateSummary,
   }
 })

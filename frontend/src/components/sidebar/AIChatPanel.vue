@@ -36,9 +36,12 @@
             <div v-if="msg.isTyping" class="typing-indicator">
               <span></span><span></span><span></span>
             </div>
-            <p v-else class="message-text" :class="{ 'text-gray-500 italic': msg.isStatus }">
-              {{ msg.content }}
-            </p>
+            <div
+              v-else
+              class="message-text"
+              :class="{ 'text-gray-500 italic': msg.isStatus }"
+              v-html="renderMarkdown(msg.content)"
+            ></div>
             <span v-if="!msg.isTyping" class="message-time">{{ formatTime(msg.timestamp) }}</span>
           </div>
         </div>
@@ -102,6 +105,8 @@ import {
   ScanTextIcon,
   UserIcon,
 } from 'lucide-vue-next'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 
 const store = useEditorStore()
 const analysisStore = useDocAnalysisStore()
@@ -140,7 +145,7 @@ const suggestions = [
   },
   {
     label: 'Summarize',
-    prompt: 'Summarize the key points in this document',
+    action: runSummarize,
     icon: markRaw(ListIcon),
   },
 ]
@@ -162,6 +167,12 @@ function formatTime(date) {
     hour: 'numeric',
     minute: 'numeric',
   }).format(date)
+}
+
+function renderMarkdown(text) {
+  if (!text) return ''
+  const parsed = marked.parse(text)
+  return DOMPurify.sanitize(parsed)
 }
 
 function scrollToBottom() {
@@ -392,6 +403,37 @@ async function runTrackChanges() {
 
   statusMsg.isTyping = false
   statusMsg.content = `I have suggested ${addedCount} text changes. You can see the unified diffs in the editor, and accept or reject them individually or all at once.`
+}
+
+async function runSummarize() {
+  addMessage('user', 'Can you summarize this document for me?')
+  const statusMsg = addMessage('ai', '', false, true)
+
+  const editor = store.editor
+  if (!editor) {
+    statusMsg.isTyping = false
+    statusMsg.content = 'Editor not found.'
+    return
+  }
+
+  const text = editor.getText()
+  if (!text.trim()) {
+    statusMsg.isTyping = false
+    statusMsg.content = 'The document is empty.'
+    return
+  }
+
+  // Run the API call
+  const response = await analysisStore.generateSummary(text)
+
+  if (!response || !response.summary) {
+    statusMsg.isTyping = false
+    statusMsg.content = "I couldn't generate a summary or an error occurred."
+    return
+  }
+
+  statusMsg.isTyping = false
+  statusMsg.content = response.summary
 }
 </script>
 
