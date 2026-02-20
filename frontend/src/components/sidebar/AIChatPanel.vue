@@ -62,6 +62,15 @@
 
       <!-- Input Area -->
       <div class="input-area">
+        <div class="mode-selector">
+          <label>Mode:</label>
+          <select v-model="currentMode" class="mode-select">
+            <option value="Chat">Chat</option>
+            <option value="Comment">Comment (Criticize)</option>
+            <option value="Suggest">Suggest (Track Changes)</option>
+            <option value="Edit">Edit (Direct Replace)</option>
+          </select>
+        </div>
         <div class="input-wrapper" :class="{ 'is-focused': isInputFocused }">
           <textarea
             ref="inputRef"
@@ -116,6 +125,7 @@ const inputText = ref('')
 const inputRef = ref(null)
 const messagesRef = ref(null)
 const isInputFocused = ref(false)
+const currentMode = ref('Chat')
 
 const messages = ref([
   {
@@ -197,7 +207,7 @@ function addMessage(role, content, isStatus = false, isTyping = false) {
   return messages.value[messages.value.length - 1]
 }
 
-function handleSend() {
+async function handleSend() {
   const text = inputText.value.trim()
   if (!text) return
 
@@ -205,38 +215,6 @@ function handleSend() {
   inputText.value = ''
   nextTick(autoResize)
 
-  // Simulate AI processing generic requests
-  const aiMsg = addMessage('ai', '', false, true)
-  setTimeout(() => {
-    aiMsg.isTyping = false
-    aiMsg.content = 'I\'m a demo AI. In a full implementation, I would process: "' + text + '"'
-  }, 1000)
-}
-
-function handleSuggestionClick(suggestion) {
-  if (suggestion.action) {
-    suggestion.action()
-  } else if (suggestion.prompt) {
-    addMessage('user', suggestion.prompt)
-    const aiMsg = addMessage('ai', '', false, true)
-    setTimeout(() => {
-      aiMsg.isTyping = false
-      aiMsg.content =
-        'In a fully connected backend, I would run the action for: ' + suggestion.label
-    }, 1000)
-  }
-}
-
-watch(isOpen, (val) => {
-  if (val) {
-    nextTick(() => inputRef.value?.focus())
-  }
-})
-
-// === Actions ===
-
-async function runCriticism() {
-  addMessage('user', 'Can you review this document and add comments?')
   const statusMsg = addMessage('ai', '', false, true)
 
   const editor = store.editor
@@ -246,25 +224,53 @@ async function runCriticism() {
     return
   }
 
-  const text = editor.getText()
-  if (!text.trim()) {
+  const docText = editor.getText()
+  if (!docText.trim()) {
     statusMsg.isTyping = false
     statusMsg.content = 'The document is empty.'
     return
   }
 
-  // Run the API call
-  const criticisms = await analysisStore.generateCriticisms(text)
+  // Call the generalized AI chat endpoint
+  const chatResponse = await analysisStore.chat(docText, text, currentMode.value)
 
-  if (!criticisms || criticisms.length === 0) {
+  if (!chatResponse) {
     statusMsg.isTyping = false
-    statusMsg.content = "I couldn't find any specific criticisms or an error occurred."
+    statusMsg.content = "I'm sorry, an error occurred while processing your request."
     return
   }
 
-  // Programmatically iterate through the doc and add comments for exact matches
-  const { doc, tr } = editor.state
+  statusMsg.isTyping = false
+
+  // Handle generalized response structure
+  switch (chatResponse.action) {
+    case 'reply':
+    case 'summarize':
+      statusMsg.content = chatResponse.replyText || 'Processing complete.'
+      break
+    case 'criticize':
+      applyCriticisms(chatResponse.criticisms || [], statusMsg)
+      break
+    case 'suggest':
+      applySuggestions(chatResponse.suggestions || [], statusMsg)
+      break
+    case 'edit':
+      applyEdits(chatResponse.edits || [], statusMsg)
+      break
+    default:
+      statusMsg.content = 'Unknown action taken by AI.'
+  }
+}
+
+function applyCriticisms(criticisms, statusMsg) {
+  if (criticisms.length === 0) {
+    statusMsg.content = "I didn't find any specific criticisms."
+    return
+  }
+
   let addedCount = 0
+  const editor = store.editor
+  const { doc, tr } = editor.state
 
   for (const crit of criticisms) {
     if (!crit.quote || !crit.criticism) continue
@@ -303,39 +309,17 @@ async function runCriticism() {
   }
 
   editor.view.dispatch(tr)
-
-  statusMsg.isTyping = false
-  statusMsg.content = `I've reviewed the document and attached ${addedCount} comment(s)`
+  statusMsg.content = `I've reviewed the document and attached ${addedCount} comment(s).`
 }
 
-async function runTrackChanges() {
-  addMessage('user', 'Can you suggest textual improvements to this document?')
-  const statusMsg = addMessage('ai', '', false, true)
-
-  const editor = store.editor
-  if (!editor) {
-    statusMsg.isTyping = false
-    statusMsg.content = 'Editor not found.'
-    return
-  }
-
-  const text = editor.getText()
-  if (!text.trim()) {
-    statusMsg.isTyping = false
-    statusMsg.content = 'The document is empty.'
-    return
-  }
-
-  // Run the API call
-  const suggestions = await analysisStore.generateSuggestions(text)
-
-  if (!suggestions || suggestions.length === 0) {
-    statusMsg.isTyping = false
+function applySuggestions(suggestions, statusMsg) {
+  if (suggestions.length === 0) {
     statusMsg.content = "I didn't find any necessary changes."
     return
   }
 
   let addedCount = 0
+  const editor = store.editor
 
   for (const sug of suggestions) {
     if (!sug.quote || !sug.suggestion) continue
@@ -359,7 +343,6 @@ async function runTrackChanges() {
       const from = matchPos
       const to = matchPos + sug.quote.length
 
-      // Delete old block and insert the diff chunks
       tr.delete(from, to)
 
       const diffChunks = diff.diffWordsWithSpace(sug.quote, sug.suggestion)
@@ -401,39 +384,88 @@ async function runTrackChanges() {
     }
   }
 
-  statusMsg.isTyping = false
-  statusMsg.content = `I have suggested ${addedCount} text changes. You can see the unified diffs in the editor, and accept or reject them individually or all at once.`
+  statusMsg.content = `I have suggested ${addedCount} text changes. You can see the unified diffs in the editor.`
 }
 
-async function runSummarize() {
-  addMessage('user', 'Can you summarize this document for me?')
-  const statusMsg = addMessage('ai', '', false, true)
+function applyEdits(edits, statusMsg) {
+  if (edits.length === 0) {
+    statusMsg.content = "I didn't find any necessary edits."
+    return
+  }
 
+  let addedCount = 0
   const editor = store.editor
-  if (!editor) {
-    statusMsg.isTyping = false
-    statusMsg.content = 'Editor not found.'
-    return
+
+  for (const edit of edits) {
+    if (!edit.quote || !edit.suggestion) continue
+
+    const currentState = editor.state
+    const { tr } = currentState
+
+    let matchPos = -1
+    currentState.doc.descendants((node, pos) => {
+      if (node.isText && matchPos === -1) {
+        let textPart = node.text
+        let matchIdx = textPart.indexOf(edit.quote)
+        if (matchIdx !== -1) {
+          matchPos = pos + matchIdx
+        }
+      }
+    })
+
+    if (matchPos !== -1) {
+      const from = matchPos
+      const to = matchPos + edit.quote.length
+
+      tr.delete(from, to)
+      tr.insertText(edit.suggestion, from)
+
+      editor.view.dispatch(tr)
+      addedCount++
+    }
   }
 
-  const text = editor.getText()
-  if (!text.trim()) {
-    statusMsg.isTyping = false
-    statusMsg.content = 'The document is empty.'
-    return
+  statusMsg.content = `I have made ${addedCount} direct edits to the text.`
+}
+
+function handleSuggestionClick(suggestion) {
+  if (suggestion.action) {
+    suggestion.action()
+  } else if (suggestion.prompt) {
+    addMessage('user', suggestion.prompt)
+    const aiMsg = addMessage('ai', '', false, true)
+    setTimeout(() => {
+      aiMsg.isTyping = false
+      aiMsg.content =
+        'In a fully connected backend, I would run the action for: ' + suggestion.label
+    }, 1000)
   }
+}
 
-  // Run the API call
-  const response = await analysisStore.generateSummary(text)
-
-  if (!response || !response.summary) {
-    statusMsg.isTyping = false
-    statusMsg.content = "I couldn't generate a summary or an error occurred."
-    return
+watch(isOpen, (val) => {
+  if (val) {
+    nextTick(() => inputRef.value?.focus())
   }
+})
 
-  statusMsg.isTyping = false
-  statusMsg.content = response.summary
+// === Actions ===
+
+function runCriticism() {
+  currentMode.value = 'Comment'
+  inputText.value = 'Can you review this document and add comments?'
+  handleSend()
+}
+
+function runTrackChanges() {
+  currentMode.value = 'Suggest'
+  inputText.value = 'Can you suggest textual improvements to this document?'
+  handleSend()
+}
+
+function runSummarize() {
+  currentMode.value = 'Chat'
+  inputText.value = 'Can you summarize this document for me?'
+  handleSend()
 }
 </script>
 
@@ -456,6 +488,41 @@ async function runSummarize() {
     transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
     opacity 0.25s ease,
     visibility 0s linear 0.35s;
+}
+
+/* ── Mode Selector ─────────────────────────── */
+.mode-selector {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding: 0 4px;
+}
+
+.mode-selector label {
+  font-size: 12px;
+  font-weight: 500;
+  color: #6b7280;
+}
+
+.mode-select {
+  flex: 1;
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  background-color: #f9fafb;
+  color: #374151;
+  cursor: pointer;
+  outline: none;
+  transition:
+    border-color 0.2s,
+    box-shadow 0.2s;
+}
+
+.mode-select:focus {
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.1);
 }
 
 .panel-root.is-open {

@@ -79,10 +79,13 @@ export async function suggestChangesDocument(text) {
 }
 
 /**
- * Generates an AI summary for the document using Map-Reduce.
+ * Send a generic AI chat request contextualized by the document.
+ * Returns a structured response containing the interpreted action.
  *
  * @param {string} text Full document text
+ * @param {string} query User query
+ * @param {string} mode Chat, Comment, Suggest, or Edit
  */
-export async function summarizeDocument(text) {
-  return post('/analyze/summarize', { text })
+export async function chatDocument(text, query, mode) {
+  return post('/analyze/chat', { text, query, mode })
 }

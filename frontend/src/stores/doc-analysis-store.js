@@ -7,7 +7,7 @@ import {
   analyzeHierarchy,
   criticizeDocument,
   suggestChangesDocument,
-  summarizeDocument,
+  chatDocument,
 } from '../services/api'
 
 export const useDocAnalysisStore = defineStore('doc-analysis', () => {
@@ -149,14 +149,16 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
   }
 
   /**
-   * Generates a Map-Reduce summary of the whole document.
+   * Generates a generic chat response and action for the document.
    * @param {string} text Full document text
+   * @param {string} query User query
+   * @param {string} mode Selected mode context
    */
-  async function generateSummary(text) {
+  async function chat(text, query, mode) {
     loading.value = true
     error.value = null
     try {
-      return await summarizeDocument(text)
+      return await chatDocument(text, query, mode)
     } catch (err) {
       error.value = err.message
       return null
@@ -179,6 +181,6 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
     clearResults,
     generateCriticisms,
     generateSuggestions,
-    generateSummary,
+    chat,
   }
 })

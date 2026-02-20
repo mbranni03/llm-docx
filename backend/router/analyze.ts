@@ -21,6 +21,7 @@ import { Embedder } from "../db/embedder";
 import { criticizeDocument } from "../services/criticism";
 import { suggestChangesDocument } from "../services/suggest";
 import { summarizeDocument } from "../services/summarize";
+import { chatWithDocument } from "../services/agent";
 
 // Single shared sync manager instance (in-memory state per server lifetime)
 const syncManager = new DocSyncManager();
@@ -146,9 +147,13 @@ export function registerAnalyzeRoutes(router: Router) {
       return Response.json(suggestions);
     });
 
-    // ── POST /analyze/summarize ────────────────────────────────────
-    r.post("/summarize", async (ctx) => {
-      const { text } = await ctx.body<{ text: string }>();
+    // ── POST /analyze/chat ────────────────────────────────────────
+    r.post("/chat", async (ctx) => {
+      const { text, query, mode } = await ctx.body<{
+        text: string;
+        query: string;
+        mode: string;
+      }>();
 
       if (!text || typeof text !== "string") {
         return Response.json(
@@ -156,10 +161,20 @@ export function registerAnalyzeRoutes(router: Router) {
           { status: 400 },
         );
       }
+      if (!query || typeof query !== "string") {
+        return Response.json(
+          { error: "Request body must include a `query` string." },
+          { status: 400 },
+        );
+      }
 
       try {
-        const summary = await summarizeDocument(text);
-        return Response.json({ summary });
+        const chatResponse = await chatWithDocument(
+          text,
+          query,
+          mode || "Chat",
+        );
+        return Response.json(chatResponse);
       } catch (err: any) {
         return Response.json({ error: err.message }, { status: 500 });
       }
