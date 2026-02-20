@@ -68,3 +68,12 @@ export async function queryDocument(text, question, options) {
 export async function criticizeDocument(text) {
   return post('/analyze/criticize', { text })
 }
+
+/**
+ * Generates AI textual change suggestions for the document using a sliding window.
+ *
+ * @param {string} text Full document text
+ */
+export async function suggestChangesDocument(text) {
+  return post('/analyze/suggest', { text })
+}

@@ -91,6 +91,7 @@
 import { ref, computed, nextTick, watch, markRaw } from 'vue'
 import { useEditorStore } from '../../stores/editor-store'
 import { useDocAnalysisStore } from '../../stores/doc-analysis-store'
+import * as diff from 'diff'
 import {
   XIcon,
   SparklesIcon,
@@ -134,7 +135,7 @@ const suggestions = [
   { label: 'Comment criticism', action: runCriticism, icon: markRaw(ScanTextIcon) },
   {
     label: 'Suggest changes',
-    prompt: 'Suggest changes to improve this document',
+    action: runTrackChanges,
     icon: markRaw(WandSparklesIcon),
   },
   {
@@ -294,6 +295,103 @@ async function runCriticism() {
 
   statusMsg.isTyping = false
   statusMsg.content = `I've reviewed the document and attached ${addedCount} comment(s)`
+}
+
+async function runTrackChanges() {
+  addMessage('user', 'Can you suggest textual improvements to this document?')
+  const statusMsg = addMessage('ai', '', false, true)
+
+  const editor = store.editor
+  if (!editor) {
+    statusMsg.isTyping = false
+    statusMsg.content = 'Editor not found.'
+    return
+  }
+
+  const text = editor.getText()
+  if (!text.trim()) {
+    statusMsg.isTyping = false
+    statusMsg.content = 'The document is empty.'
+    return
+  }
+
+  // Run the API call
+  const suggestions = await analysisStore.generateSuggestions(text)
+
+  if (!suggestions || suggestions.length === 0) {
+    statusMsg.isTyping = false
+    statusMsg.content = "I didn't find any necessary changes."
+    return
+  }
+
+  let addedCount = 0
+
+  for (const sug of suggestions) {
+    if (!sug.quote || !sug.suggestion) continue
+
+    const currentState = editor.state
+    const { tr } = currentState
+
+    let matchPos = -1
+    currentState.doc.descendants((node, pos) => {
+      if (node.isText && matchPos === -1) {
+        let textPart = node.text
+        let matchIdx = textPart.indexOf(sug.quote)
+        if (matchIdx !== -1) {
+          matchPos = pos + matchIdx
+        }
+      }
+    })
+
+    if (matchPos !== -1) {
+      const diffId = crypto.randomUUID()
+      const from = matchPos
+      const to = matchPos + sug.quote.length
+
+      // Delete old block and insert the diff chunks
+      tr.delete(from, to)
+
+      const diffChunks = diff.diffWordsWithSpace(sug.quote, sug.suggestion)
+
+      let currentInsertPos = from
+      diffChunks.forEach((chunk) => {
+        if (chunk.added) {
+          tr.insertText(chunk.value, currentInsertPos)
+          tr.addMark(
+            currentInsertPos,
+            currentInsertPos + chunk.value.length,
+            editor.schema.marks.diff.create({
+              diffId,
+              type: 'insert',
+              reason: sug.reason,
+            }),
+          )
+          currentInsertPos += chunk.value.length
+        } else if (chunk.removed) {
+          tr.insertText(chunk.value, currentInsertPos)
+          tr.addMark(
+            currentInsertPos,
+            currentInsertPos + chunk.value.length,
+            editor.schema.marks.diff.create({
+              diffId,
+              type: 'delete',
+              reason: sug.reason,
+            }),
+          )
+          currentInsertPos += chunk.value.length
+        } else {
+          tr.insertText(chunk.value, currentInsertPos)
+          currentInsertPos += chunk.value.length
+        }
+      })
+
+      editor.view.dispatch(tr)
+      addedCount++
+    }
+  }
+
+  statusMsg.isTyping = false
+  statusMsg.content = `I have suggested ${addedCount} text changes. You can see the unified diffs in the editor, and accept or reject them individually or all at once.`
 }
 </script>
 
@@ -582,6 +680,52 @@ async function runCriticism() {
   40% {
     transform: scale(1);
   }
+}
+
+/* ── Actions ───────────────────────────── */
+.diff-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+  margin-left: 42px; /* align with text */
+}
+
+.diff-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 1px solid transparent;
+}
+
+.diff-accept {
+  background: #f0fdf4;
+  color: #166534;
+  border-color: #bbf7d0;
+}
+
+.diff-accept:hover {
+  background: #dcfce7;
+}
+
+.diff-reject {
+  background: #fef2f2;
+  color: #991b1b;
+  border-color: #fecaca;
+}
+
+.diff-reject:hover {
+  background: #fee2e2;
+}
+
+.action-icon {
+  width: 14px;
+  height: 14px;
 }
 
 /* ── Suggestions ───────────────────────────── */

@@ -6,6 +6,7 @@ import {
   queryDocument,
   analyzeHierarchy,
   criticizeDocument,
+  suggestChangesDocument,
 } from '../services/api'
 
 export const useDocAnalysisStore = defineStore('doc-analysis', () => {
@@ -129,6 +130,23 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
     }
   }
 
+  /**
+   * Run the sliding window AI text suggestions (Track Changes).
+   * @param {string} text Full document text
+   */
+  async function generateSuggestions(text) {
+    loading.value = true
+    error.value = null
+    try {
+      return await suggestChangesDocument(text)
+    } catch (err) {
+      error.value = err.message
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
   return {
     loading,
     error,
@@ -142,5 +160,6 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
     fetchHierarchy,
     clearResults,
     generateCriticisms,
+    generateSuggestions,
   }
 })

@@ -19,6 +19,7 @@ import {
 } from "../services/hierarchy-extractor";
 import { Embedder } from "../db/embedder";
 import { criticizeDocument } from "../services/criticism";
+import { suggestChangesDocument } from "../services/suggest";
 
 // Single shared sync manager instance (in-memory state per server lifetime)
 const syncManager = new DocSyncManager();
@@ -127,6 +128,21 @@ export function registerAnalyzeRoutes(router: Router) {
 
       const criticisms = await criticizeDocument(text);
       return Response.json(criticisms);
+    });
+
+    // ── POST /analyze/suggest ──────────────────────────────────────
+    r.post("/suggest", async (ctx) => {
+      const { text } = await ctx.body<{ text: string }>();
+
+      if (!text || typeof text !== "string") {
+        return Response.json(
+          { error: "Request body must include a `text` string." },
+          { status: 400 },
+        );
+      }
+
+      const suggestions = await suggestChangesDocument(text);
+      return Response.json(suggestions);
     });
   });
 }
