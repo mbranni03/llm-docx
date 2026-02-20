@@ -735,7 +735,16 @@ function runSummarize() {
   border-radius: 12px;
   border: 1px solid #f3f4f6;
   display: inline-block;
-  white-space: pre-wrap;
+}
+
+.message-text :deep(p),
+.message-text :deep(ul),
+.message-text :deep(ol) {
+  margin: 0 0 12px 0;
+}
+
+.message-text :deep(*:last-child) {
+  margin-bottom: 0;
 }
 
 .message-user .message-text {
