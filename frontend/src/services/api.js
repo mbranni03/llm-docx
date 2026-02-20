@@ -23,9 +23,19 @@ async function post(path, body) {
  * Chunk a document and return full analysis (stats + chunks).
  * @param {string} text
  * @param {object} [options]
+ * @param {boolean} [useHierarchy] Enable structure-aware chunking
  */
-export async function analyzeChunk(text, options) {
-  return post('/analyze/chunk', { text, options })
+export async function analyzeChunk(text, options, useHierarchy = false) {
+  return post('/analyze/chunk', { text, options, useHierarchy })
+}
+
+/**
+ * Extract the hierarchical structure (headings, outline, summaries).
+ * @param {string} text
+ * @param {object} [options] HierarchyOptions
+ */
+export async function analyzeHierarchy(text, options) {
+  return post('/analyze/hierarchy', { text, options })
 }
 
 /**
@@ -48,4 +58,13 @@ export async function analyzeStats(text) {
  */
 export async function queryDocument(text, question, options) {
   return post('/analyze/query', { text, question, options })
+}
+
+/**
+ * Generates AI criticisms for the document using a sliding window.
+ *
+ * @param {string} text Full document text
+ */
+export async function criticizeDocument(text) {
+  return post('/analyze/criticize', { text })
 }

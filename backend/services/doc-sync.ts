@@ -22,10 +22,16 @@ import { VectorDB } from "../db/vectordb";
 import { Embedder } from "../db/embedder";
 import {
   chunkText,
+  chunkWithHierarchy,
   hashDocument,
   type ChunkOptions,
   type Chunk,
 } from "./chunker";
+import {
+  extractHierarchy,
+  type HierarchyMap,
+  type HierarchyOptions,
+} from "./hierarchy-extractor";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -36,6 +42,9 @@ interface ChunkRecord {
   chunkIndex: number;
   start: number;
   end: number;
+  sectionTitle: string;
+  sectionPath: string;
+  contextPrefix: string;
   vector: number[];
   [key: string]: unknown;
 }
@@ -48,6 +57,8 @@ export class DocSyncManager {
   private lastDocHash: string | null = null;
   /** Map chunkHash → true for every chunk currently stored. */
   private storedHashes: Set<string> = new Set();
+  /** Cached hierarchy from the last sync. */
+  private lastHierarchy: HierarchyMap | null = null;
 
   constructor(tableName = "doc_chunks", embedder?: Embedder) {
     this.embedder = embedder ?? new Embedder();
@@ -64,14 +75,18 @@ export class DocSyncManager {
    */
   async syncIfNeeded(
     docText: string,
-    options?: ChunkOptions,
+    options?: ChunkOptions & HierarchyOptions,
   ): Promise<boolean> {
     // ── Tier 1: document-level fast path ──────────────────────────
     const docHash = await hashDocument(docText);
     if (docHash === this.lastDocHash) return false;
 
-    // ── Tier 2: chunk-level diff ─────────────────────────────────
-    const chunks = await chunkText(docText, options);
+    // ── Extract hierarchy ───────────────────────────────────────
+    const hierarchy = await extractHierarchy(docText, this.embedder, options);
+    this.lastHierarchy = hierarchy;
+
+    // ── Tier 2: chunk-level diff ───────────────────────────────
+    const chunks = await chunkWithHierarchy(docText, hierarchy, options);
     const newHashes = new Set(chunks.map((c) => c.hash));
 
     // Determine which chunks need embedding (new or changed)
@@ -82,13 +97,8 @@ export class DocSyncManager {
 
     // Delete stale chunks
     if (toDelete.length > 0) {
-      // LanceDB doesn't have a per-row delete by field out of the box,
-      // so the simplest correct approach is: if anything was deleted,
-      // reset and re-insert everything that should remain.
-      // This is still cheap because we only *embed* the truly new chunks.
       await this.fullResync(chunks);
     } else if (toInsert.length > 0) {
-      // Only additions — embed and append
       await this.embedAndInsert(toInsert);
     }
 
@@ -107,11 +117,15 @@ export class DocSyncManager {
   async queryWithSync(
     docText: string,
     question: string,
-    options?: ChunkOptions & { limit?: number },
+    options?: ChunkOptions & HierarchyOptions & { limit?: number },
   ) {
     await this.syncIfNeeded(docText, options);
     const limit = options?.limit ?? 10;
-    return this.vdb.searchText(question, limit);
+    const results = await this.vdb.searchText(question, limit);
+    return {
+      results,
+      hierarchy: this.lastHierarchy,
+    };
   }
 
   /**
@@ -120,6 +134,7 @@ export class DocSyncManager {
   async reset(): Promise<void> {
     await this.vdb.reset();
     this.lastDocHash = null;
+    this.lastHierarchy = null;
     this.storedHashes.clear();
   }
 
@@ -140,6 +155,9 @@ export class DocSyncManager {
       chunkIndex: c.index,
       start: c.start,
       end: c.end,
+      sectionTitle: c.sectionTitle ?? "",
+      sectionPath: c.sectionPath ?? "",
+      contextPrefix: c.contextPrefix ?? "",
       vector: vectors[i]!,
     }));
 
@@ -184,6 +202,9 @@ export class DocSyncManager {
         chunkIndex: c.index,
         start: c.start,
         end: c.end,
+        sectionTitle: c.sectionTitle ?? "",
+        sectionPath: c.sectionPath ?? "",
+        contextPrefix: c.contextPrefix ?? "",
         vector: newVectors[i]!,
       })),
       ...existingChunks.map((c, i) => ({
@@ -192,6 +213,9 @@ export class DocSyncManager {
         chunkIndex: c.index,
         start: c.start,
         end: c.end,
+        sectionTitle: c.sectionTitle ?? "",
+        sectionPath: c.sectionPath ?? "",
+        contextPrefix: c.contextPrefix ?? "",
         vector: existingVectors[i]!,
       })),
     ];

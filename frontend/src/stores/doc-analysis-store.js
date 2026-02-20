@@ -1,6 +1,12 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
-import { analyzeChunk, analyzeStats, queryDocument } from '../services/api'
+import {
+  analyzeChunk,
+  analyzeStats,
+  queryDocument,
+  analyzeHierarchy,
+  criticizeDocument,
+} from '../services/api'
 
 export const useDocAnalysisStore = defineStore('doc-analysis', () => {
   // ── State ──────────────────────────────────────────────────────────
@@ -16,6 +22,9 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
   /** Last query results from /analyze/query */
   const queryResults = ref(null)
 
+  /** Hierarchical document map from /analyze/hierarchy */
+  const hierarchyMap = ref(null)
+
   // ── Actions ────────────────────────────────────────────────────────
 
   /**
@@ -27,7 +36,11 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
     loading.value = true
     error.value = null
     try {
-      analysisResult.value = await analyzeChunk(text, options)
+      analysisResult.value = await analyzeChunk(text, options, true)
+      // Also capture hierarchy if returned
+      if (analysisResult.value?.hierarchy) {
+        hierarchyMap.value = analysisResult.value.hierarchy
+      }
     } catch (err) {
       error.value = err.message
     } finally {
@@ -72,11 +85,48 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
     }
   }
 
+  /**
+   * Fetch just the hierarchy map.
+   * @param {string} text
+   * @param {object} [options]
+   */
+  async function fetchHierarchy(text, options) {
+    loading.value = true
+    error.value = null
+    try {
+      hierarchyMap.value = await analyzeHierarchy(text, options)
+      return hierarchyMap.value
+    } catch (err) {
+      error.value = err.message
+      return null
+    } finally {
+      loading.value = false
+    }
+  }
+
   function clearResults() {
     analysisResult.value = null
     stats.value = null
     queryResults.value = null
+    hierarchyMap.value = null
     error.value = null
+  }
+
+  /**
+   * Run the sliding window AI criticism.
+   * @param {string} text Full document text
+   */
+  async function generateCriticisms(text) {
+    loading.value = true
+    error.value = null
+    try {
+      return await criticizeDocument(text)
+    } catch (err) {
+      error.value = err.message
+      return null
+    } finally {
+      loading.value = false
+    }
   }
 
   return {
@@ -85,9 +135,12 @@ export const useDocAnalysisStore = defineStore('doc-analysis', () => {
     analysisResult,
     stats,
     queryResults,
+    hierarchyMap,
     analyze,
     fetchStats,
     query,
+    fetchHierarchy,
     clearResults,
+    generateCriticisms,
   }
 })

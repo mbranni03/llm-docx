@@ -1,19 +1,14 @@
 <template>
   <div class="panel-root" :class="{ 'is-open': isOpen }">
-    <!-- Ambient glow behind panel -->
-    <div class="panel-glow"></div>
-
-    <!-- Panel content -->
     <div class="panel-inner">
       <!-- Header -->
       <div class="panel-header">
         <div class="header-left">
           <div class="ai-avatar">
             <SparklesIcon class="avatar-icon" />
-            <div class="avatar-pulse"></div>
           </div>
           <div class="header-text">
-            <h2 class="header-title">AI</h2>
+            <h2 class="header-title">AI Assistant</h2>
             <div class="header-status">
               <span class="status-dot"></span>
               <span class="status-label">Ready</span>
@@ -27,24 +22,34 @@
 
       <!-- Messages Area -->
       <div class="messages-area" ref="messagesRef">
-        <!-- Welcome Message -->
-        <div class="message message-ai">
-          <div class="message-avatar">
-            <SparklesIcon class="msg-avatar-icon" />
+        <div
+          v-for="msg in messages"
+          :key="msg.id"
+          class="message"
+          :class="msg.role === 'ai' ? 'message-ai' : 'message-user'"
+        >
+          <div class="message-avatar" :class="{ 'user-avatar': msg.role === 'user' }">
+            <SparklesIcon v-if="msg.role === 'ai'" class="msg-avatar-icon" />
+            <UserIcon v-else class="msg-avatar-icon" />
           </div>
           <div class="message-content">
-            <p class="message-text">How can I help you with your document?</p>
-            <span class="message-time">Just now</span>
+            <div v-if="msg.isTyping" class="typing-indicator">
+              <span></span><span></span><span></span>
+            </div>
+            <p v-else class="message-text" :class="{ 'text-gray-500 italic': msg.isStatus }">
+              {{ msg.content }}
+            </p>
+            <span v-if="!msg.isTyping" class="message-time">{{ formatTime(msg.timestamp) }}</span>
           </div>
         </div>
 
         <!-- Suggestion Chips -->
-        <div class="suggestions">
+        <div class="suggestions" v-if="!analysisStore.loading && isLastMessageAi">
           <button
             v-for="suggestion in suggestions"
             :key="suggestion.label"
             class="suggestion-chip"
-            @click="handleSuggestion(suggestion.prompt)"
+            @click="handleSuggestionClick(suggestion)"
           >
             <component :is="suggestion.icon" class="chip-icon" />
             <span>{{ suggestion.label }}</span>
@@ -54,21 +59,23 @@
 
       <!-- Input Area -->
       <div class="input-area">
-        <div class="input-wrapper">
+        <div class="input-wrapper" :class="{ 'is-focused': isInputFocused }">
           <textarea
             ref="inputRef"
             v-model="inputText"
             placeholder="Ask anything..."
             class="chat-input"
             rows="1"
+            @focus="isInputFocused = true"
+            @blur="isInputFocused = false"
             @input="autoResize"
-            @keydown.enter.exact.prevent="sendMessage"
+            @keydown.enter.exact.prevent="handleSend"
           ></textarea>
           <button
             class="send-btn"
             :class="{ 'send-btn--active': inputText.trim() }"
             :disabled="!inputText.trim()"
-            @click="sendMessage"
+            @click="handleSend"
             aria-label="Send message"
           >
             <ArrowUpIcon class="send-icon" />
@@ -83,43 +90,57 @@
 <script setup>
 import { ref, computed, nextTick, watch, markRaw } from 'vue'
 import { useEditorStore } from '../../stores/editor-store'
+import { useDocAnalysisStore } from '../../stores/doc-analysis-store'
 import {
   XIcon,
   SparklesIcon,
   ArrowUpIcon,
   PenLineIcon,
-  CheckCheckIcon,
   WandSparklesIcon,
   ListIcon,
+  ScanTextIcon,
+  UserIcon,
 } from 'lucide-vue-next'
 
 const store = useEditorStore()
+const analysisStore = useDocAnalysisStore()
 const isOpen = computed(() => store.activeSidebarTab === 'chat')
 
 const inputText = ref('')
 const inputRef = ref(null)
 const messagesRef = ref(null)
+const isInputFocused = ref(false)
+
+const messages = ref([
+  {
+    id: 1,
+    role: 'ai',
+    content: 'How can I help you with your document?',
+    timestamp: new Date(),
+  },
+])
+
+const isLastMessageAi = computed(() => {
+  if (messages.value.length === 0) return false
+  return messages.value[messages.value.length - 1].role === 'ai'
+})
 
 const suggestions = [
   {
-    label: 'Improve writing',
-    prompt: 'Improve the writing quality of this document',
-    icon: markRaw(WandSparklesIcon),
+    label: 'Continue writing',
+    prompt: 'Continue writing from where I left off',
+    icon: markRaw(PenLineIcon),
   },
+  { label: 'Comment criticism', action: runCriticism, icon: markRaw(ScanTextIcon) },
   {
-    label: 'Fix grammar',
-    prompt: 'Fix all grammar and spelling errors',
-    icon: markRaw(CheckCheckIcon),
+    label: 'Suggest changes',
+    prompt: 'Suggest changes to improve this document',
+    icon: markRaw(WandSparklesIcon),
   },
   {
     label: 'Summarize',
     prompt: 'Summarize the key points in this document',
     icon: markRaw(ListIcon),
-  },
-  {
-    label: 'Continue writing',
-    prompt: 'Continue writing from where I left off',
-    icon: markRaw(PenLineIcon),
   },
 ]
 
@@ -134,19 +155,64 @@ function autoResize() {
   el.style.height = Math.min(el.scrollHeight, 120) + 'px'
 }
 
-function sendMessage() {
-  if (!inputText.value.trim()) return
-  // Future: integrate with AI backend
-  inputText.value = ''
-  nextTick(autoResize)
+function formatTime(date) {
+  if (!date) return ''
+  return new Intl.DateTimeFormat('en-US', {
+    hour: 'numeric',
+    minute: 'numeric',
+  }).format(date)
 }
 
-function handleSuggestion(prompt) {
-  inputText.value = prompt
+function scrollToBottom() {
   nextTick(() => {
-    autoResize()
-    inputRef.value?.focus()
+    if (messagesRef.value) {
+      messagesRef.value.scrollTop = messagesRef.value.scrollHeight
+    }
   })
+}
+
+function addMessage(role, content, isStatus = false, isTyping = false) {
+  const newMsg = {
+    id: Date.now() + Math.random(),
+    role,
+    content,
+    timestamp: new Date(),
+    isStatus,
+    isTyping,
+  }
+  messages.value.push(newMsg)
+  scrollToBottom()
+  return messages.value[messages.value.length - 1]
+}
+
+function handleSend() {
+  const text = inputText.value.trim()
+  if (!text) return
+
+  addMessage('user', text)
+  inputText.value = ''
+  nextTick(autoResize)
+
+  // Simulate AI processing generic requests
+  const aiMsg = addMessage('ai', '', false, true)
+  setTimeout(() => {
+    aiMsg.isTyping = false
+    aiMsg.content = 'I\'m a demo AI. In a full implementation, I would process: "' + text + '"'
+  }, 1000)
+}
+
+function handleSuggestionClick(suggestion) {
+  if (suggestion.action) {
+    suggestion.action()
+  } else if (suggestion.prompt) {
+    addMessage('user', suggestion.prompt)
+    const aiMsg = addMessage('ai', '', false, true)
+    setTimeout(() => {
+      aiMsg.isTyping = false
+      aiMsg.content =
+        'In a fully connected backend, I would run the action for: ' + suggestion.label
+    }, 1000)
+  }
 }
 
 watch(isOpen, (val) => {
@@ -154,6 +220,81 @@ watch(isOpen, (val) => {
     nextTick(() => inputRef.value?.focus())
   }
 })
+
+// === Actions ===
+
+async function runCriticism() {
+  addMessage('user', 'Can you review this document and add comments?')
+  const statusMsg = addMessage('ai', '', false, true)
+
+  const editor = store.editor
+  if (!editor) {
+    statusMsg.isTyping = false
+    statusMsg.content = 'Editor not found.'
+    return
+  }
+
+  const text = editor.getText()
+  if (!text.trim()) {
+    statusMsg.isTyping = false
+    statusMsg.content = 'The document is empty.'
+    return
+  }
+
+  // Run the API call
+  const criticisms = await analysisStore.generateCriticisms(text)
+
+  if (!criticisms || criticisms.length === 0) {
+    statusMsg.isTyping = false
+    statusMsg.content = "I couldn't find any specific criticisms or an error occurred."
+    return
+  }
+
+  // Programmatically iterate through the doc and add comments for exact matches
+  const { doc, tr } = editor.state
+  let addedCount = 0
+
+  for (const crit of criticisms) {
+    if (!crit.quote || !crit.criticism) continue
+
+    const matches = []
+    doc.descendants((node, pos) => {
+      if (node.isText) {
+        let textPart = node.text
+        let matchIdx = textPart.indexOf(crit.quote)
+        while (matchIdx !== -1) {
+          matches.push({
+            from: pos + matchIdx,
+            to: pos + matchIdx + crit.quote.length,
+            text: crit.quote,
+          })
+          matchIdx = textPart.indexOf(crit.quote, matchIdx + 1)
+        }
+      }
+    })
+
+    if (matches.length > 0) {
+      const match = matches[0] // take the first occurrence
+      const commentId = crypto.randomUUID()
+
+      tr.addMark(match.from, match.to, editor.schema.marks.comment.create({ commentId }))
+
+      store.addComment({
+        id: commentId,
+        author: 'AI Reviewer',
+        timestamp: new Date(),
+        text: crit.criticism,
+        selectedText: crit.quote,
+      })
+      addedCount++
+    }
+  }
+
+  editor.view.dispatch(tr)
+
+  statusMsg.isTyping = false
+  statusMsg.content = `I've reviewed the document and attached ${addedCount} comment(s)`
+}
 </script>
 
 <style scoped>
@@ -171,7 +312,6 @@ watch(isOpen, (val) => {
   opacity: 0;
   visibility: hidden;
   pointer-events: none;
-  will-change: transform, opacity;
   transition:
     transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
     opacity 0.25s ease,
@@ -187,14 +327,7 @@ watch(isOpen, (val) => {
     transform 0.35s cubic-bezier(0.16, 1, 0.3, 1),
     opacity 0.25s ease,
     visibility 0s linear 0s;
-}
-
-.panel-glow {
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.05) 0%, rgba(139, 92, 246, 0.03) 100%);
-  pointer-events: none;
-  border-radius: 0;
+  box-shadow: -4px 0 24px rgba(0, 0, 0, 0.05);
 }
 
 .panel-inner {
@@ -202,10 +335,8 @@ watch(isOpen, (val) => {
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: rgba(15, 15, 20, 0.96);
-  backdrop-filter: blur(40px) saturate(1.5);
-  -webkit-backdrop-filter: blur(40px) saturate(1.5);
-  border-left: 1px solid rgba(255, 255, 255, 0.06);
+  background: #ffffff;
+  border-left: 1px solid #f3f4f6;
   overflow: hidden;
 }
 
@@ -215,7 +346,8 @@ watch(isOpen, (val) => {
   align-items: center;
   justify-content: space-between;
   padding: 20px 20px 16px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: 1px solid #f3f4f6;
+  background: #fafafa;
 }
 
 .header-left {
@@ -233,35 +365,13 @@ watch(isOpen, (val) => {
   display: flex;
   align-items: center;
   justify-content: center;
-  box-shadow:
-    0 0 20px rgba(99, 102, 241, 0.3),
-    0 0 60px rgba(139, 92, 246, 0.1);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.2);
 }
 
 .avatar-icon {
   width: 18px;
   height: 18px;
   color: white;
-}
-
-.avatar-pulse {
-  position: absolute;
-  inset: -3px;
-  border-radius: 13px;
-  border: 1px solid rgba(99, 102, 241, 0.3);
-  animation: pulse-ring 3s ease-in-out infinite;
-}
-
-@keyframes pulse-ring {
-  0%,
-  100% {
-    opacity: 0;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 1;
-    transform: scale(1.05);
-  }
 }
 
 .header-text {
@@ -273,7 +383,7 @@ watch(isOpen, (val) => {
 .header-title {
   font-size: 15px;
   font-weight: 600;
-  color: rgba(255, 255, 255, 0.92);
+  color: #111827;
   letter-spacing: -0.01em;
   line-height: 1;
   margin: 0;
@@ -289,13 +399,12 @@ watch(isOpen, (val) => {
   width: 6px;
   height: 6px;
   border-radius: 50%;
-  background: #34d399;
-  box-shadow: 0 0 8px rgba(52, 211, 153, 0.5);
+  background: #10b981;
 }
 
 .status-label {
   font-size: 11px;
-  color: rgba(255, 255, 255, 0.4);
+  color: #6b7280;
   font-weight: 500;
   letter-spacing: 0.02em;
 }
@@ -311,12 +420,12 @@ watch(isOpen, (val) => {
   border: none;
   cursor: pointer;
   transition: all 0.2s ease;
-  color: rgba(255, 255, 255, 0.35);
+  color: #9ca3af;
 }
 
 .close-btn:hover {
-  background: rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.7);
+  background: #f3f4f6;
+  color: #4b5563;
 }
 
 .close-icon {
@@ -331,7 +440,8 @@ watch(isOpen, (val) => {
   padding: 24px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
+  background: #ffffff;
 }
 
 .messages-area::-webkit-scrollbar {
@@ -341,16 +451,13 @@ watch(isOpen, (val) => {
   background: transparent;
 }
 .messages-area::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: #e5e7eb;
   border-radius: 4px;
-}
-.messages-area::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.15);
 }
 
 .message {
   display: flex;
-  gap: 10px;
+  gap: 12px;
   animation: message-in 0.3s ease-out;
 }
 
@@ -365,42 +472,116 @@ watch(isOpen, (val) => {
   }
 }
 
+.message-ai {
+  flex-direction: row;
+}
+
+.message-user {
+  flex-direction: row-reverse;
+}
+
 .message-avatar {
-  width: 28px;
-  height: 28px;
+  width: 30px;
+  height: 30px;
   border-radius: 8px;
-  background: linear-gradient(135deg, rgba(99, 102, 241, 0.2), rgba(139, 92, 246, 0.15));
+  background: linear-gradient(135deg, rgba(99, 102, 241, 0.1), rgba(139, 92, 246, 0.1));
   display: flex;
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-  border: 1px solid rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.2);
+}
+
+.user-avatar {
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
 }
 
 .msg-avatar-icon {
-  width: 14px;
-  height: 14px;
-  color: #a78bfa;
+  width: 15px;
+  height: 15px;
+  color: #6366f1;
+}
+
+.user-avatar .msg-avatar-icon {
+  color: #6b7280;
 }
 
 .message-content {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.message-user .message-content {
+  align-items: flex-end;
 }
 
 .message-text {
   font-size: 13.5px;
   line-height: 1.55;
-  color: rgba(255, 255, 255, 0.78);
+  color: #374151;
   margin: 0;
-  letter-spacing: -0.005em;
+  background: #f9fafb;
+  padding: 10px 14px;
+  border-radius: 12px;
+  border: 1px solid #f3f4f6;
+  display: inline-block;
+  white-space: pre-wrap;
+}
+
+.message-user .message-text {
+  background: #6366f1;
+  color: #ffffff;
+  border-color: #6366f1;
 }
 
 .message-time {
   font-size: 10px;
-  color: rgba(255, 255, 255, 0.2);
-  margin-top: 4px;
+  color: #9ca3af;
+  margin-top: 6px;
   display: block;
+}
+
+/* Typing Indicator */
+.typing-indicator {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 14px 16px;
+  background: #f9fafb;
+  border-radius: 12px;
+  border: 1px solid #f3f4f6;
+  width: fit-content;
+  min-height: 48px;
+}
+
+.typing-indicator span {
+  width: 6px;
+  height: 6px;
+  background-color: #9ca3af;
+  border-radius: 50%;
+  animation: typing 1.4s infinite ease-in-out both;
+}
+
+.typing-indicator span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.typing-indicator span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes typing {
+  0%,
+  80%,
+  100% {
+    transform: scale(0);
+  }
+  40% {
+    transform: scale(1);
+  }
 }
 
 /* ── Suggestions ───────────────────────────── */
@@ -408,71 +589,72 @@ watch(isOpen, (val) => {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 4px;
+  margin-left: 42px; /* align with text */
 }
 
 .suggestion-chip {
   display: inline-flex;
   align-items: center;
   gap: 6px;
-  padding: 8px 14px;
+  padding: 8px 12px;
   border-radius: 20px;
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  color: rgba(255, 255, 255, 0.55);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  color: #4b5563;
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s ease;
-  letter-spacing: -0.005em;
   white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.02);
 }
 
-.suggestion-chip:hover {
-  background: rgba(99, 102, 241, 0.12);
-  border-color: rgba(99, 102, 241, 0.25);
-  color: rgba(255, 255, 255, 0.85);
+.suggestion-chip:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.suggestion-chip:hover:not(:disabled) {
+  background: #f9fafb;
+  border-color: #d1d5db;
+  color: #111827;
   transform: translateY(-1px);
-  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.1);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.05);
 }
 
-.suggestion-chip:active {
+.suggestion-chip:active:not(:disabled) {
   transform: translateY(0);
 }
 
 .chip-icon {
-  width: 13px;
-  height: 13px;
-  opacity: 0.7;
-}
-
-.suggestion-chip:hover .chip-icon {
-  opacity: 1;
+  width: 14px;
+  height: 14px;
+  color: #6366f1;
 }
 
 /* ── Input Area ────────────────────────────── */
 .input-area {
   padding: 16px 20px 20px;
-  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  border-top: 1px solid #f3f4f6;
+  background: #fafafa;
 }
 
 .input-wrapper {
   position: relative;
   display: flex;
   align-items: flex-end;
-  background: rgba(255, 255, 255, 0.05);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
   border-radius: 14px;
   transition: all 0.25s ease;
-  padding: 4px;
+  padding: 6px;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.02);
 }
 
-.input-wrapper:focus-within {
-  border-color: rgba(99, 102, 241, 0.35);
-  background: rgba(255, 255, 255, 0.07);
-  box-shadow:
-    0 0 0 3px rgba(99, 102, 241, 0.08),
-    0 0 20px rgba(99, 102, 241, 0.05);
+.input-wrapper.is-focused {
+  border-color: #a5b4fc;
+  box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.1);
 }
 
 .chat-input {
@@ -481,47 +663,48 @@ watch(isOpen, (val) => {
   border: none;
   outline: none;
   resize: none;
-  padding: 10px 12px;
+  padding: 8px 10px;
   font-size: 13.5px;
   line-height: 1.5;
-  color: rgba(255, 255, 255, 0.88);
+  color: #111827;
   font-family:
     'Inter',
     -apple-system,
     BlinkMacSystemFont,
     sans-serif;
-  min-height: 40px;
+  min-height: 38px;
   max-height: 120px;
 }
 
 .chat-input::placeholder {
-  color: rgba(255, 255, 255, 0.22);
+  color: #9ca3af;
 }
 
 .send-btn {
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   border-radius: 10px;
   border: none;
-  background: rgba(255, 255, 255, 0.06);
-  color: rgba(255, 255, 255, 0.2);
+  background: #f3f4f6;
+  color: #9ca3af;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
   transition: all 0.25s ease;
   flex-shrink: 0;
-  margin-bottom: 2px;
+  margin-bottom: 3px;
+  margin-right: 3px;
 }
 
 .send-btn--active {
   background: linear-gradient(135deg, #6366f1, #8b5cf6);
   color: white;
-  box-shadow: 0 0 16px rgba(99, 102, 241, 0.3);
+  box-shadow: 0 2px 8px rgba(99, 102, 241, 0.3);
 }
 
 .send-btn--active:hover {
-  box-shadow: 0 0 24px rgba(99, 102, 241, 0.45);
+  box-shadow: 0 4px 12px rgba(99, 102, 241, 0.45);
   transform: scale(1.05);
 }
 
@@ -535,18 +718,19 @@ watch(isOpen, (val) => {
 }
 
 .input-hint {
-  margin: 8px 0 0;
-  font-size: 10px;
-  color: rgba(255, 255, 255, 0.15);
+  margin: 10px 0 0;
+  font-size: 11px;
+  color: #9ca3af;
   text-align: center;
 }
 
 .input-hint kbd {
-  padding: 1px 5px;
+  padding: 2px 6px;
   border-radius: 4px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: #f3f4f6;
+  border: 1px solid #e5e7eb;
   font-family: inherit;
   font-size: 10px;
+  color: #6b7280;
 }
 </style>

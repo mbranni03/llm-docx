@@ -11,6 +11,13 @@
     <!-- Scrollable Editor + Margin Area -->
     <div class="flex-1 w-full overflow-y-auto px-8 py-8 scroll-smooth" ref="scrollContainer">
       <div class="flex justify-center gap-0 relative">
+        <!-- Left Margin (Analysis) -->
+        <div class="w-72 shrink-0 relative mr-4">
+          <div class="sticky top-0 pt-0">
+            <AnalysisPanel />
+          </div>
+        </div>
+
         <!-- Document Paper -->
         <div
           ref="paperRef"
@@ -21,11 +28,6 @@
 
         <!-- Comment Margin (inline, scrolls with document) -->
         <div class="w-72 shrink-0 relative ml-4" ref="marginRef">
-          <!-- Analysis Panel -->
-          <div class="mb-4">
-            <AnalysisPanel />
-          </div>
-
           <div
             v-for="comment in comments"
             :key="comment.id"
@@ -450,6 +452,7 @@ function deleteComment(id) {
 .line-clamp-2 {
   display: -webkit-box;
   -webkit-line-clamp: 2;
+  line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
 }

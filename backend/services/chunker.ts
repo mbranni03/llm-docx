@@ -8,11 +8,21 @@
  *
  * Each chunk is hashed (SHA-256) for efficient diff-based syncing.
  *
+ * Supports optional **structure-aware chunking** via `chunkWithHierarchy()`
+ * which splits along section boundaries and enriches each chunk with
+ * structural context (section title, path, and a context prefix for the LLM).
+ *
  * Usage:
  * ```ts
  * const chunks = chunkText("Very long doc...", { maxChunkSize: 1000, overlap: 200 });
  * ```
  */
+
+import {
+  type HierarchyMap,
+  type HeadingNode,
+  buildContextPrefix,
+} from "./hierarchy-extractor";
 
 // ─── Types ───────────────────────────────────────────────────────────
 
@@ -34,6 +44,12 @@ export interface Chunk {
   end: number;
   /** SHA-256 hex digest of `text`. */
   hash: string;
+  /** Title of the section this chunk belongs to (if hierarchy available). */
+  sectionTitle?: string;
+  /** Full path from root section to current section (e.g. "Chapter 1 > 1.2 Budget"). */
+  sectionPath?: string;
+  /** LLM context prefix describing the chunk's position in the document. */
+  contextPrefix?: string;
 }
 
 export interface AnalysisResult {
@@ -41,6 +57,8 @@ export interface AnalysisResult {
   totalWords: number;
   totalParagraphs: number;
   chunks: Chunk[];
+  /** Hierarchical map of the document (populated when hierarchy is used). */
+  hierarchy?: HierarchyMap;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────
@@ -193,10 +211,72 @@ export function analyzeText(text: string) {
 export async function analyzeDocument(
   text: string,
   options: ChunkOptions = {},
+  hierarchy?: HierarchyMap,
 ): Promise<AnalysisResult> {
   const stats = analyzeText(text);
-  const chunks = await chunkText(text, options);
-  return { ...stats, chunks };
+  const chunks = hierarchy
+    ? await chunkWithHierarchy(text, hierarchy, options)
+    : await chunkText(text, options);
+  return { ...stats, chunks, hierarchy };
+}
+
+/**
+ * Structure-aware chunking.
+ *
+ * Splits the document along section boundaries from the hierarchy,
+ * then applies the standard paragraph/sentence chunking within each
+ * section. Every chunk is annotated with section metadata.
+ */
+export async function chunkWithHierarchy(
+  text: string,
+  hierarchy: HierarchyMap,
+  options: ChunkOptions = {},
+): Promise<Chunk[]> {
+  const allSections = flattenSections(hierarchy.headings);
+  const allChunks: Chunk[] = [];
+  let globalIndex = 0;
+
+  for (const section of allSections) {
+    const sectionText = text.slice(section.startOffset, section.endOffset);
+    if (sectionText.trim().length === 0) continue;
+
+    const sectionChunks = await chunkText(sectionText, options);
+    const contextPrefix = buildContextPrefix(
+      section.startOffset,
+      hierarchy.headings,
+    );
+
+    for (const chunk of sectionChunks) {
+      allChunks.push({
+        ...chunk,
+        index: globalIndex++,
+        // Adjust offsets to be document-relative
+        start: chunk.start + section.startOffset,
+        end: chunk.end + section.startOffset,
+        sectionTitle: section.title,
+        sectionPath: contextPrefix,
+        contextPrefix: contextPrefix ? `[${contextPrefix}] ` : undefined,
+      });
+    }
+  }
+
+  return allChunks;
+}
+
+/**
+ * Flatten a heading tree into leaf-level sections (sections with no children,
+ * or all sections if we want to chunk at every level).
+ */
+function flattenSections(headings: HeadingNode[]): HeadingNode[] {
+  const result: HeadingNode[] = [];
+  for (const h of headings) {
+    if (h.children.length === 0) {
+      result.push(h);
+    } else {
+      result.push(...flattenSections(h.children));
+    }
+  }
+  return result;
 }
 
 /**
